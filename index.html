@@ -268,7 +268,7 @@
         const empNo = document.getElementById('employee-no').value.trim();
         if (!empNo) return;
         
-        document.getElementById('login-error').innerText = 'Searching Alphalist CSV...';
+        document.getElementById('login-error').innerText = 'Searching Alphalist...';
         
         google.script.run.withSuccessHandler(function(res) {
           if (res.success) {
