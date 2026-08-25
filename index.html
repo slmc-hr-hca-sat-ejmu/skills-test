@@ -113,16 +113,6 @@
         margin-top: 20px;
       }
       .slot-btn { background-color: var(--success); padding: 12px; text-align: center; margin: 0; }
-      
-      .participant-card {
-        border: 1px solid var(--border);
-        padding: 15px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
     </style>
   </head>
   <body>
@@ -179,23 +169,6 @@
         <div class="time-slots" id="time-slots-container"></div>
       </div>
 
-      <!-- FACILITATOR DASHBOARD -->
-      <div id="page-facilitator-dashboard" class="page">
-        <h2>Scheduled Participants</h2>
-        
-        <!-- FACILITATOR DETAILS CARD -->
-        <div class="user-details-card">
-          <p><strong>Facilitator Emp No:</strong> <span id="fac-card-emp-no"></span></p>
-          <p><strong>Full Name:</strong> <span id="fac-card-full-name" class="highlight"></span></p>
-          <p><strong>Last Name:</strong> <span id="fac-card-last-name"></span></p>
-          <p><strong>First Name:</strong> <span id="fac-card-first-name"></span></p>
-          <p><strong>Middle Name:</strong> <span id="fac-card-middle-name"></span></p>
-        </div>
-
-        <button onclick="loadParticipants()">Refresh Schedule</button>
-        <div id="participant-list" style="margin-top: 15px;"></div>
-      </div>
-
       <!-- EVALUATION TOOL -->
       <div id="page-evaluation" class="page">
         <div class="eval-header">
@@ -206,14 +179,20 @@
           </p>
         </div>
 
+        <div class="user-details-card">
+          <p><strong>Evaluator (Facilitator):</strong> <span id="eval-facilitator-info" class="highlight"></span></p>
+        </div>
+
         <div class="eval-info-grid">
           <div>
             <label><strong>Date:</strong></label>
             <input type="date" id="eval-date">
           </div>
           <div>
-            <label><strong>Name:</strong></label>
-            <input type="text" id="eval-name" readonly>
+            <label><strong>Name (Participant):</strong></label>
+            <select id="eval-name">
+              <option value="" disabled selected>Loading scheduled participants...</option>
+            </select>
           </div>
           <div>
             <label><strong>Scenario No.:</strong></label>
@@ -262,7 +241,7 @@
             <tbody id="eval-tbody"></tbody>
           </table>
           <button type="button" onclick="submitEvaluationForm()">Submit Evaluation</button>
-          <button type="button" class="secondary" onclick="showPage('page-facilitator-dashboard')">Cancel</button>
+          <button type="button" class="secondary" onclick="showPage('page-role-selection')">Cancel</button>
         </form>
       </div>
 
@@ -350,14 +329,16 @@
           generateTimeSlots();
           showPage('page-student-scheduler');
         } else {
-          document.getElementById('fac-card-emp-no').innerText = currentUser.empNo;
-          document.getElementById('fac-card-full-name').innerText = currentUser.fullName;
-          document.getElementById('fac-card-last-name').innerText = currentUser.lastName;
-          document.getElementById('fac-card-first-name').innerText = currentUser.firstName;
-          document.getElementById('fac-card-middle-name').innerText = currentUser.middleName || 'N/A';
-
-          loadParticipants();
-          showPage('page-facilitator-dashboard');
+          // FACILITATOR: Proceed directly to Evaluation Page
+          document.getElementById('eval-facilitator-info').innerText = `${currentUser.fullName} (Emp #: ${currentUser.empNo})`;
+          document.getElementById('eval-date').valueAsDate = new Date();
+          document.getElementById('eval-scenario').value = "";
+          document.getElementById('eval-diagnosis').value = "";
+          document.getElementById('eval-patient-name').value = "";
+          
+          renderChecklist();
+          loadScheduledParticipantsDropdown();
+          showPage('page-evaluation');
         }
       }
 
@@ -381,49 +362,38 @@
       function scheduleTest(time) {
         google.script.run
           .withSuccessHandler(res => {
-            if(res.success) {
-              alert(res.message);
-              showPage('page-role-selection');
-            } else {
-              alert("Error: " + res.message);
-            }
+            alert("YOU ARE BOOKED!");
+            showPage('page-role-selection');
           })
           .withFailureHandler(err => alert("Schedule Error: " + err.message))
           .saveSchedule(currentUser, time);
       }
 
-      function loadParticipants() {
+      function loadScheduledParticipantsDropdown() {
+        const nameSelect = document.getElementById('eval-name');
+        nameSelect.innerHTML = '<option value="" disabled selected>Loading participants...</option>';
+
         google.script.run
           .withSuccessHandler(students => {
-            const list = document.getElementById('participant-list');
-            list.innerHTML = '';
+            nameSelect.innerHTML = '<option value="" disabled selected>Select Participant...</option>';
             if (students.length === 0) {
-              list.innerHTML = '<p>No scheduled students found.</p>';
+              const opt = document.createElement('option');
+              opt.value = "";
+              opt.innerText = "No scheduled participants found";
+              nameSelect.appendChild(opt);
               return;
             }
             students.forEach(st => {
-              const div = document.createElement('div');
-              div.className = 'participant-card';
-              div.innerHTML = `
-                <div><strong>${st.name}</strong> (Emp #: ${st.empNo}) — Scheduled: <strong>${st.time}</strong></div>
-                <button onclick="startEvaluation('${st.name}')">Start Evaluation</button>
-              `;
-              list.appendChild(div);
+              const opt = document.createElement('option');
+              opt.value = st.name;
+              opt.innerText = `${st.name} (${st.empNo}) - ${st.time}`;
+              nameSelect.appendChild(opt);
             });
           })
-          .withFailureHandler(err => alert("Load Error: " + err.message))
+          .withFailureHandler(err => {
+            nameSelect.innerHTML = '<option value="" disabled selected>Error loading participants</option>';
+          })
           .getScheduledStudents();
-      }
-
-      function startEvaluation(studentName) {
-        document.getElementById('eval-date').valueAsDate = new Date();
-        document.getElementById('eval-name').value = studentName;
-        document.getElementById('eval-scenario').value = "";
-        document.getElementById('eval-diagnosis').value = "";
-        document.getElementById('eval-patient-name').value = "";
-        
-        renderChecklist();
-        showPage('page-evaluation');
       }
 
       function updateDiagnosis() {
@@ -480,6 +450,12 @@
       }
 
       function submitEvaluationForm() {
+        const participantName = document.getElementById('eval-name').value;
+        if (!participantName) {
+          alert("Please select a participant before submitting.");
+          return;
+        }
+
         const scores = [];
         const rows = document.querySelectorAll('#eval-tbody tr:not(.category-header)');
         
@@ -497,7 +473,7 @@
         const payload = {
           facilitatorEmpNo: currentUser.empNo,
           date: document.getElementById('eval-date').value,
-          participantName: document.getElementById('eval-name').value,
+          participantName: participantName,
           scenarioNo: document.getElementById('eval-scenario').value,
           diagnosis: document.getElementById('eval-diagnosis').value,
           patientName: document.getElementById('eval-patient-name').value,
@@ -508,7 +484,7 @@
         google.script.run
           .withSuccessHandler(res => {
             alert(res.message);
-            showPage('page-facilitator-dashboard');
+            showPage('page-role-selection');
           })
           .withFailureHandler(err => alert("Submission Error: " + err.message))
           .submitEvaluation(payload);
