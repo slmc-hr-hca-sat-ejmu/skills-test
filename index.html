@@ -14,6 +14,7 @@
         --text: #333333;
         --border: #cccccc;
         --success: #28a745;
+        --selected: #003366;
       }
       body {
         font-family: Arial, sans-serif;
@@ -43,6 +44,10 @@
         border-radius: 4px;
         cursor: pointer;
         margin: 5px 0;
+      }
+      button:disabled {
+        background-color: #a0a0a0;
+        cursor: not-allowed;
       }
       button.secondary { background-color: var(--secondary); }
       
@@ -110,9 +115,29 @@
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
         gap: 10px;
+        margin: 20px 0;
+      }
+      .slot-btn { 
+        background-color: var(--success); 
+        padding: 12px; 
+        text-align: center; 
+        margin: 0; 
+        border-radius: 4px;
+        transition: background-color 0.2s ease;
+      }
+      .slot-btn.selected {
+        background-color: var(--selected);
+        box-shadow: 0 0 0 3px #00aaff;
+      }
+      
+      .confirmation-area {
+        background-color: #f8f9fa;
+        border: 1px dashed var(--primary);
+        padding: 20px;
+        text-align: center;
+        border-radius: 6px;
         margin-top: 20px;
       }
-      .slot-btn { background-color: var(--success); padding: 12px; text-align: center; margin: 0; }
     </style>
   </head>
   <body>
@@ -156,7 +181,6 @@
       <div id="page-student-scheduler" class="page">
         <h2>Schedule Skills Test</h2>
         
-        <!-- STUDENT DETAILS CARD -->
         <div class="user-details-card">
           <p><strong>Employee Number:</strong> <span id="card-emp-no"></span></p>
           <p><strong>Full Name:</strong> <span id="card-full-name" class="highlight"></span></p>
@@ -165,8 +189,13 @@
           <p><strong>Middle Name:</strong> <span id="card-middle-name"></span></p>
         </div>
 
-        <p>Select an available 30-minute slot (9:00 AM – 5:00 PM; Lunch Break: 12:00 PM – 1:00 PM):</p>
+        <p>Select an available 30-minute time slot (9:00 AM – 5:00 PM; Lunch Break: 12:00 PM – 1:00 PM):</p>
         <div class="time-slots" id="time-slots-container"></div>
+
+        <div class="confirmation-area">
+          <p style="font-size: 16px; margin: 0 0 15px 0;">Selected Time Slot: <strong id="selected-slot-display" class="highlight">None</strong></p>
+          <button id="confirm-booking-btn" onclick="confirmSchedule()" disabled style="font-size: 16px; padding: 14px 28px;">Confirm Schedule</button>
+        </div>
       </div>
 
       <!-- EVALUATION TOOL -->
@@ -198,9 +227,9 @@
             <label><strong>Scenario No.:</strong></label>
             <select id="eval-scenario" onchange="updateDiagnosis()">
               <option value="" disabled selected>Select Scenario...</option>
-              <option value="1">Scenario 1</option>
-              <option value="2">Scenario 2</option>
-              <option value="3">Scenario 3</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
             </select>
           </div>
           <div>
@@ -250,6 +279,7 @@
     <script>
       let currentRole = '';
       let currentUser = {};
+      let selectedTimeSlot = null;
 
       const checklistData = [
         {
@@ -329,7 +359,6 @@
           generateTimeSlots();
           showPage('page-student-scheduler');
         } else {
-          // FACILITATOR: Proceed directly to Evaluation Page
           document.getElementById('eval-facilitator-info').innerText = `${currentUser.fullName} (Emp #: ${currentUser.empNo})`;
           document.getElementById('eval-date').valueAsDate = new Date();
           document.getElementById('eval-scenario').value = "";
@@ -345,6 +374,10 @@
       function generateTimeSlots() {
         const container = document.getElementById('time-slots-container');
         container.innerHTML = '';
+        selectedTimeSlot = null;
+        document.getElementById('selected-slot-display').innerText = 'None';
+        document.getElementById('confirm-booking-btn').disabled = true;
+
         const slots = [
           "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
           "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM", "03:00 PM", "03:30 PM", "04:00 PM", "04:30 PM"
@@ -354,19 +387,29 @@
           const btn = document.createElement('button');
           btn.className = 'slot-btn';
           btn.innerText = time;
-          btn.onclick = () => scheduleTest(time);
+          btn.onclick = () => highlightSlot(time, btn);
           container.appendChild(btn);
         });
       }
 
-      function scheduleTest(time) {
+      function highlightSlot(time, btnElement) {
+        selectedTimeSlot = time;
+        document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+        btnElement.classList.add('selected');
+        document.getElementById('selected-slot-display').innerText = time;
+        document.getElementById('confirm-booking-btn').disabled = false;
+      }
+
+      function confirmSchedule() {
+        if (!selectedTimeSlot) return;
+        
         google.script.run
           .withSuccessHandler(res => {
             alert("YOU ARE BOOKED!");
             showPage('page-role-selection');
           })
           .withFailureHandler(err => alert("Schedule Error: " + err.message))
-          .saveSchedule(currentUser, time);
+          .saveSchedule(currentUser, selectedTimeSlot);
       }
 
       function loadScheduledParticipantsDropdown() {
