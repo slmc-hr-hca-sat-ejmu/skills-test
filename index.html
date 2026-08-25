@@ -1,476 +1,154 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <base target="_top">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Skills Check: Acute Care</title>
-    <style>
-      :root {
-        --primary: #0056b3;
-        --secondary: #6c757d;
-        --bg: #f4f6f9;
-        --card: #ffffff;
-        --text: #333333;
-        --border: #cccccc;
-        --success: #28a745;
-      }
-      body {
-        font-family: Arial, sans-serif;
-        background-color: var(--bg);
-        color: var(--text);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 950px;
-        margin: 0 auto;
-        background: var(--card);
-        padding: 30px;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-      }
-      .page { display: none; }
-      .page.active { display: block; }
-      
-      button {
-        background-color: var(--primary);
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        font-size: 15px;
-        font-weight: bold;
-        border-radius: 4px;
-        cursor: pointer;
-        margin: 5px 0;
-      }
-      button.secondary { background-color: var(--secondary); }
-      
-      .input-group {
-        margin-bottom: 15px;
-      }
-      .input-group label {
-        display: block;
-        font-weight: bold;
-        margin-bottom: 5px;
-      }
-      input[type="text"], input[type="date"], select {
-        padding: 10px;
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-      }
-      .error { color: #d9534f; font-weight: bold; margin-top: 10px; }
-      .highlight { font-weight: bold; color: var(--primary); }
-      
-      .eval-header {
-        border-bottom: 2px solid var(--primary);
-        padding-bottom: 10px;
-        margin-bottom: 20px;
-      }
-      .subtitle { font-weight: bold; color: #555; margin-bottom: 5px; }
-      .description { font-size: 13px; color: #666; line-height: 1.4; }
+const SPREADSHEET_ID = '1zn0R6iXvKSWp9wChatw3C38UQUQMFhqCeShiwCF__Wg';
+const SCHEDULES_SHEET_NAME = 'Schedules';
+const EVALUATIONS_SHEET_NAME = 'Evaluations';
 
-      .eval-info-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 15px;
-        margin-bottom: 20px;
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('Skills Check: Acute Care')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function getSpreadsheet() {
+  try {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  } catch (e) {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  }
+}
+
+function registerUser(empNo, lastName, firstName, middleName) {
+  const cleanEmpNo = String(empNo).trim();
+  const cleanLast = String(lastName).trim();
+  const cleanFirst = String(firstName).trim();
+  const cleanMiddle = String(middleName || '').trim();
+  
+  if (!cleanEmpNo || !cleanLast || !cleanFirst) {
+    return { success: false, message: 'Please fill in Employee Number, Last Name, and First Name.' };
+  }
+
+  const fullName = `${cleanFirst} ${cleanMiddle} ${cleanLast}`.replace(/\s+/g, ' ').trim();
+  return {
+    success: true,
+    student: {
+      empNo: cleanEmpNo,
+      lastName: cleanLast,
+      firstName: cleanFirst,
+      middleName: cleanMiddle,
+      fullName: fullName
+    }
+  };
+}
+
+function saveSchedule(student, timeSlot) {
+  try {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName(SCHEDULES_SHEET_NAME);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(SCHEDULES_SHEET_NAME);
+      sheet.appendRow(['Timestamp', 'Employee No', 'Last Name', 'First Name', 'Middle Name', 'Full Name', 'Time Slot']);
+    }
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).trim() === String(student.empNo).trim()) {
+        sheet.getRange(i + 1, 1, 1, 7).setValues([[
+          new Date(), student.empNo, student.lastName, student.firstName, student.middleName, student.fullName, timeSlot
+        ]]);
+        return { success: true, message: `Schedule updated to ${timeSlot}` };
       }
+    }
 
-      .eval-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 20px 0;
-      }
-      .eval-table th, .eval-table td {
-        border: 1px solid var(--border);
-        padding: 8px;
-        text-align: center;
-      }
-      .eval-table th { background-color: #e9ecef; font-size: 12px; }
-      .eval-table td.task-name { text-align: left; padding-left: 20px; }
-      .eval-table tr.category-header { background-color: #f1f3f5; font-weight: bold; text-align: left; }
-      .eval-table input[type="checkbox"] { transform: scale(1.3); cursor: pointer; }
-      
-      .time-slots {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-        gap: 10px;
-        margin-top: 20px;
-      }
-      .slot-btn { background-color: var(--success); padding: 12px; text-align: center; margin: 0; }
-      
-      .participant-card {
-        border: 1px solid var(--border);
-        padding: 15px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      
-      <!-- ROLE SELECTION -->
-      <div id="page-role-selection" class="page active">
-        <h2>Skills Check Portal: Acute Care</h2>
-        <p>Please select your role:</p>
-        <div>
-          <button onclick="showLogin('student')">I AM A STUDENT</button>
-          <button onclick="showLogin('facilitator')">I AM A FACILITATOR</button>
-        </div>
-      </div>
+    sheet.appendRow([new Date(), student.empNo, student.lastName, student.firstName, student.middleName, student.fullName, timeSlot]);
+    return { success: true, message: `Successfully scheduled for ${timeSlot}` };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
 
-      <!-- USER VERIFICATION FORM -->
-      <div id="page-login" class="page">
-        <h2 id="login-title">User Verification</h2>
-        <div class="input-group">
-          <label>Employee Number *</label>
-          <input type="text" id="employee-no" placeholder="Enter Employee Number">
-        </div>
-        <div class="input-group">
-          <label>Last Name *</label>
-          <input type="text" id="last-name" placeholder="Enter Last Name">
-        </div>
-        <div class="input-group">
-          <label>First Name *</label>
-          <input type="text" id="first-name" placeholder="Enter First Name">
-        </div>
-        <div class="input-group">
-          <label>Middle Name</label>
-          <input type="text" id="middle-name" placeholder="Enter Middle Name (Optional)">
-        </div>
-        <button onclick="verifyUser()">Continue</button>
-        <button class="secondary" onclick="showPage('page-role-selection')">Back</button>
-        <p id="login-error" class="error"></p>
-      </div>
+function getScheduledStudents() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(SCHEDULES_SHEET_NAME);
+    if (!sheet) return [];
 
-      <!-- STUDENT SCHEDULER -->
-      <div id="page-student-scheduler" class="page">
-        <h2>Schedule Skills Test</h2>
-        <p>Student Name: <span id="student-name-display" class="highlight"></span></p>
-        <p>Select an available 30-minute slot (9:00 AM – 5:00 PM; Lunch Break: 12:00 PM – 1:00 PM):</p>
-        <div class="time-slots" id="time-slots-container"></div>
-      </div>
+    const data = sheet.getDataRange().getValues();
+    const students = [];
 
-      <!-- FACILITATOR DASHBOARD -->
-      <div id="page-facilitator-dashboard" class="page">
-        <h2>Scheduled Participants</h2>
-        <p>Facilitator: <span id="facilitator-name-display" class="highlight"></span></p>
-        <button onclick="loadParticipants()">Refresh Schedule</button>
-        <div id="participant-list" style="margin-top: 15px;"></div>
-      </div>
+    for (let i = 1; i < data.length; i++) {
+      students.push({
+        empNo: data[i][1],
+        lastName: data[i][2],
+        firstName: data[i][3],
+        middleName: data[i][4],
+        name: data[i][5] || `${data[i][3]} ${data[i][2]}`,
+        time: data[i][6] || data[i][3]
+      });
+    }
+    return students;
+  } catch (error) {
+    return [];
+  }
+}
 
-      <!-- EVALUATION TOOL -->
-      <div id="page-evaluation" class="page">
-        <div class="eval-header">
-          <h2>SKILLS CHECK: ACUTE CARE</h2>
-          <p class="subtitle">TO BE ACCOMPLISHED BY EVALUATOR</p>
-          <p class="description">
-            The Skills Checklist gauges the ability of the participant to perform/demonstrate the tasks as identified in relation to the scenario given. This exercise is a teaching tool that relates the lessons discussed to the participant's actual workflow. Performance will be recorded as either Done or Not Done. The form shall be submitted to the Trainer at the end of the session.
-          </p>
-        </div>
+function submitEvaluation(evalData) {
+  try {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName(EVALUATIONS_SHEET_NAME);
 
-        <div class="eval-info-grid">
-          <div>
-            <label><strong>Date:</strong></label>
-            <input type="date" id="eval-date">
-          </div>
-          <div>
-            <label><strong>Name:</strong></label>
-            <input type="text" id="eval-name" readonly>
-          </div>
-          <div>
-            <label><strong>Scenario No.:</strong></label>
-            <select id="eval-scenario" onchange="updateDiagnosis()">
-              <option value="" disabled selected>Select Scenario...</option>
-              <option value="1">Scenario 1</option>
-              <option value="2">Scenario 2</option>
-              <option value="3">Scenario 3</option>
-            </select>
-          </div>
-          <div>
-            <label><strong>Diagnosis:</strong></label>
-            <input type="text" id="eval-diagnosis" readonly placeholder="Auto-populates from scenario">
-          </div>
-          <div>
-            <label><strong>Patient Name:</strong></label>
-            <select id="eval-patient-name">
-              <option value="" disabled selected>Select Skills Test No...</option>
-              <option value="NTCP, Skills Test 1">NTCP, Skills Test 1</option>
-              <option value="NTCP, Skills Test 2">NTCP, Skills Test 2</option>
-              <option value="NTCP, Skills Test 3">NTCP, Skills Test 3</option>
-            </select>
-          </div>
-          <div>
-            <label><strong>Location:</strong></label>
-            <input type="text" id="eval-location" value="6 MAIN A" readonly>
-          </div>
-        </div>
+    const headers = [
+      'Timestamp', 'Facilitator Emp No', 'Date', 'Participant Name', 
+      'Scenario No', 'Diagnosis', 'Patient Name', 'Location',
+      'System Access', 'Clinical Summary', 'Orders Tab', 'Worklist Manager', 'Flowsheet',
+      'Admission Workflow', 'Allergies', 'Medication History', 'Vital Signs', 'Assessment', 
+      'Intake & Output', 'Fall Risk Assessment', 'Educaiton Record', 'Critical Result Notification', 'Plan of Care',
+      'Orders Tab Review', 'Carrying Out Orders', 'Add Specimen',
+      'Communication Order to CEMD', 'Supplies Encoding', 'Claiming of Medications', 'Turn In of Supplies or Medication',
+      'First Dose Checked', 'Knowledge Base Medication Administration', 'Administer Tablet Medication', 'Administer IV Fluids'
+    ];
 
-        <form id="evaluation-form">
-          <table class="eval-table">
-            <thead>
-              <tr>
-                <th rowspan="2">EMR TASK</th>
-                <th colspan="2">INITIAL ATTEMPT</th>
-                <th colspan="2">SECOND ATTEMPT</th>
-                <th rowspan="2">NOT APPLICABLE</th>
-              </tr>
-              <tr>
-                <th>DONE</th>
-                <th>NOT DONE</th>
-                <th>DONE</th>
-                <th>NOT DONE</th>
-              </tr>
-            </thead>
-            <tbody id="eval-tbody"></tbody>
-          </table>
-          <button type="button" onclick="submitEvaluationForm()">Submit Evaluation</button>
-          <button type="button" class="secondary" onclick="showPage('page-facilitator-dashboard')">Cancel</button>
-        </form>
-      </div>
+    if (!sheet) {
+      sheet = ss.insertSheet(EVALUATIONS_SHEET_NAME);
+      sheet.appendRow(headers);
+    }
 
-    </div>
+    const row = [
+      new Date(),
+      evalData.facilitatorEmpNo,
+      evalData.date,
+      evalData.participantName,
+      evalData.scenarioNo,
+      evalData.diagnosis,
+      evalData.patientName,
+      evalData.location
+    ];
 
-    <script>
-      let currentRole = '';
-      let currentUser = {};
-
-      const checklistData = [
-        {
-          category: "(1) SYSTEM ACCESS, ENDORSEMENT, AND HANDOFF REVIEW",
-          tasks: ["System Access", "Clinical Summary", "Orders Tab", "Worklist Manager", "Flowsheet"]
-        },
-        {
-          category: "(2) PATIENT ADMISSION, AND CLINICAL DOCUMENTATION",
-          tasks: ["Admission Workflow", "Allergies", "Medication History", "Vital Signs", "Assessment", "Intake & Output", "Fall Risk Assessment", "Education Record", "Critical Result Notification", "Plan of Care"]
-        },
-        {
-          category: "(3) CARRYING OUT ORDERS & SPECIMEN MANAGEMENT",
-          tasks: ["Orders Tab Review", "Carrying Out Orders", "Add Specimen"]
-        },
-        {
-          category: "(4) SUPPLIES AND PHARMACY REQUESTS",
-          tasks: ["Communication Order to CEMD", "Supplies Encoding", "Claiming of Medications", "Turn In of Supplies or Medication"]
-        },
-        {
-          category: "(5) MEDICATION ADMINISTRATION",
-          tasks: ["First Dose Checked", "Knowledge Base Medication Administration", "Administer Tablet Medication", "Administer IV Fluids"]
+    const taskMap = {};
+    if (Array.isArray(evalData.scores)) {
+      evalData.scores.forEach(item => {
+        let result = 'Not Evaluated';
+        if (item.na === 'NA') {
+          result = 'N/A';
+        } else if (item.initialAttempt) {
+          result = `Initial: ${item.initialAttempt}`;
+        } else if (item.secondAttempt) {
+          result = `Second: ${item.secondAttempt}`;
         }
-      ];
+        taskMap[item.task] = result;
+      });
+    }
 
-      const scenariosMapping = {
-        "1": "Acute Respiratory Failure secondary to Pneumonia",
-        "2": "Sepsis secondary to Severe Urinary Tract Infection",
-        "3": "Post-Operative Monitoring following Abdominal Surgery"
-      };
+    for (let i = 8; i < headers.length; i++) {
+      const headerName = headers[i];
+      const matchedKey = headerName === 'Educaiton Record' ? 'Education Record' : headerName;
+      row.push(taskMap[matchedKey] || taskMap[headerName] || '');
+    }
 
-      function showPage(pageId) {
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.getElementById(pageId).classList.add('active');
-      }
-
-      function showLogin(role) {
-        currentRole = role;
-        document.getElementById('login-title').innerText = role === 'student' ? 'Student Verification' : 'Facilitator Verification';
-        document.getElementById('employee-no').value = '';
-        document.getElementById('last-name').value = '';
-        document.getElementById('first-name').value = '';
-        document.getElementById('middle-name').value = '';
-        document.getElementById('login-error').innerText = '';
-        showPage('page-login');
-      }
-
-      function verifyUser() {
-        const empNo = document.getElementById('employee-no').value;
-        const lastName = document.getElementById('last-name').value;
-        const firstName = document.getElementById('first-name').value;
-        const middleName = document.getElementById('middle-name').value;
-        
-        document.getElementById('login-error').innerText = 'Validating details...';
-        
-        google.script.run
-          .withSuccessHandler(function(res) {
-            if (res.success) {
-              currentUser = { empNo: res.empNo, name: res.name };
-              document.getElementById('login-error').innerText = '';
-              if (currentRole === 'student') {
-                document.getElementById('student-name-display').innerText = res.name;
-                generateTimeSlots();
-                showPage('page-student-scheduler');
-              } else {
-                document.getElementById('facilitator-name-display').innerText = res.name;
-                loadParticipants();
-                showPage('page-facilitator-dashboard');
-              }
-            } else {
-              document.getElementById('login-error').innerText = res.message;
-            }
-          })
-          .withFailureHandler(function(err) {
-            document.getElementById('login-error').innerText = 'Error: ' + err.message;
-          })
-          .registerUser(empNo, lastName, firstName, middleName);
-      }
-
-      function generateTimeSlots() {
-        const container = document.getElementById('time-slots-container');
-        container.innerHTML = '';
-        const slots = [
-          "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-          "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM", "03:00 PM", "03:30 PM", "04:00 PM", "04:30 PM"
-        ];
-
-        slots.forEach(time => {
-          const btn = document.createElement('button');
-          btn.className = 'slot-btn';
-          btn.innerText = time;
-          btn.onclick = () => scheduleTest(time);
-          container.appendChild(btn);
-        });
-      }
-
-      function scheduleTest(time) {
-        google.script.run
-          .withSuccessHandler(res => {
-            if(res.success) {
-              alert(res.message);
-              showPage('page-role-selection');
-            } else {
-              alert("Error: " + res.message);
-            }
-          })
-          .withFailureHandler(err => alert("Schedule Error: " + err.message))
-          .saveSchedule(currentUser.empNo, currentUser.name, time);
-      }
-
-      function loadParticipants() {
-        google.script.run
-          .withSuccessHandler(students => {
-            const list = document.getElementById('participant-list');
-            list.innerHTML = '';
-            if (students.length === 0) {
-              list.innerHTML = '<p>No scheduled students found.</p>';
-              return;
-            }
-            students.forEach(st => {
-              const div = document.createElement('div');
-              div.className = 'participant-card';
-              div.innerHTML = `
-                <div><strong>${st.name}</strong> (Emp #: ${st.empNo}) — Scheduled: <strong>${st.time}</strong></div>
-                <button onclick="startEvaluation('${st.name}')">Start Evaluation</button>
-              `;
-              list.appendChild(div);
-            });
-          })
-          .withFailureHandler(err => alert("Load Error: " + err.message))
-          .getScheduledStudents();
-      }
-
-      function startEvaluation(studentName) {
-        document.getElementById('eval-date').valueAsDate = new Date();
-        document.getElementById('eval-name').value = studentName;
-        document.getElementById('eval-scenario').value = "";
-        document.getElementById('eval-diagnosis').value = "";
-        document.getElementById('eval-patient-name').value = "";
-        
-        renderChecklist();
-        showPage('page-evaluation');
-      }
-
-      function updateDiagnosis() {
-        const sc = document.getElementById('eval-scenario').value;
-        document.getElementById('eval-diagnosis').value = scenariosMapping[sc] || "";
-      }
-
-      function renderChecklist() {
-        const tbody = document.getElementById('eval-tbody');
-        tbody.innerHTML = '';
-
-        checklistData.forEach((section, sIndex) => {
-          const headerRow = document.createElement('tr');
-          headerRow.className = 'category-header';
-          headerRow.innerHTML = `<td colspan="6">${section.category}</td>`;
-          tbody.appendChild(headerRow);
-
-          section.tasks.forEach((task, tIndex) => {
-            const idBase = `s${sIndex}_t${tIndex}`;
-            const tr = document.createElement('tr');
-            
-            tr.innerHTML = `
-              <td class="task-name">${task}</td>
-              <td><input type="checkbox" data-task="${task}" data-type="init_done" onchange="toggleExclusive(this, '${idBase}', 'init_done')"></td>
-              <td><input type="checkbox" data-task="${task}" data-type="init_notdone" onchange="toggleExclusive(this, '${idBase}', 'init_notdone')"></td>
-              <td><input type="checkbox" data-task="${task}" data-type="sec_done" onchange="toggleExclusive(this, '${idBase}', 'sec_done')"></td>
-              <td><input type="checkbox" data-task="${task}" data-type="sec_notdone" onchange="toggleExclusive(this, '${idBase}', 'sec_notdone')"></td>
-              <td><input type="checkbox" data-task="${task}" data-type="na" onchange="toggleExclusive(this, '${idBase}', 'na')"></td>
-            `;
-            tbody.appendChild(tr);
-          });
-        });
-      }
-
-      function toggleExclusive(cb, idBase, currentType) {
-        if (!cb.checked) return;
-        const row = cb.closest('tr');
-        const checkboxes = row.querySelectorAll('input[type="checkbox"]');
-        
-        checkboxes.forEach(c => {
-          if (c !== cb) {
-            if (currentType === 'na') {
-              c.checked = false;
-            } else if (currentType.startsWith('init') && c.dataset.type.startsWith('init')) {
-              c.checked = false;
-            } else if (currentType.startsWith('sec') && c.dataset.type.startsWith('sec')) {
-              c.checked = false;
-            }
-            if (currentType !== 'na' && c.dataset.type === 'na') {
-              c.checked = false;
-            }
-          }
-        });
-      }
-
-      function submitEvaluationForm() {
-        const scores = [];
-        const rows = document.querySelectorAll('#eval-tbody tr:not(.category-header)');
-        
-        rows.forEach(row => {
-          const taskName = row.querySelector('.task-name').innerText;
-          const cbs = row.querySelectorAll('input[type="checkbox"]');
-          scores.push({
-            task: taskName,
-            initialAttempt: cbs[0].checked ? 'Done' : (cbs[1].checked ? 'Not Done' : ''),
-            secondAttempt: cbs[2].checked ? 'Done' : (cbs[3].checked ? 'Not Done' : ''),
-            na: cbs[4].checked ? 'NA' : ''
-          });
-        });
-
-        const payload = {
-          facilitatorEmpNo: currentUser.empNo,
-          date: document.getElementById('eval-date').value,
-          participantName: document.getElementById('eval-name').value,
-          scenarioNo: document.getElementById('eval-scenario').value,
-          diagnosis: document.getElementById('eval-diagnosis').value,
-          patientName: document.getElementById('eval-patient-name').value,
-          location: document.getElementById('eval-location').value,
-          scores: scores
-        };
-
-        google.script.run
-          .withSuccessHandler(res => {
-            alert(res.message);
-            showPage('page-facilitator-dashboard');
-          })
-          .withFailureHandler(err => alert("Submission Error: " + err.message))
-          .submitEvaluation(payload);
-      }
-    </script>
-  </body>
-</html>
+    sheet.appendRow(row);
+    return { success: true, message: 'Evaluation submitted and saved successfully.' };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
