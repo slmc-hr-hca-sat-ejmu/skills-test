@@ -1,0 +1,133 @@
+const SPREADSHEET_ID = '1zn0R6iXvKSWp9wChatw3C38UQUQMFhqCeShiwCF__Wg';
+const SCHEDULES_SHEET_NAME = 'Schedules';
+const EVALUATIONS_SHEET_NAME = 'Evaluations';
+
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('Skills Check: Acute Care')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function getSpreadsheet() {
+  try {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  } catch (e) {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  }
+}
+
+function saveSchedule(student, timeSlot) {
+  try {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName(SCHEDULES_SHEET_NAME);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(SCHEDULES_SHEET_NAME);
+      sheet.appendRow(['Timestamp', 'Employee No', 'Last Name', 'First Name', 'Middle Name', 'Full Name', 'Time Slot']);
+    }
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).trim() === String(student.empNo).trim()) {
+        sheet.getRange(i + 1, 1, 1, 7).setValues([[
+          new Date(), student.empNo, student.lastName, student.firstName, student.middleName, student.fullName, timeSlot
+        ]]);
+        return { success: true, message: 'YOU ARE BOOKED!' };
+      }
+    }
+
+    sheet.appendRow([new Date(), student.empNo, student.lastName, student.firstName, student.middleName, student.fullName, timeSlot]);
+    return { success: true, message: 'YOU ARE BOOKED!' };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+function getScheduledStudents() {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(SCHEDULES_SHEET_NAME);
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    const students = [];
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][1]) {
+        students.push({
+          empNo: data[i][1],
+          lastName: data[i][2],
+          firstName: data[i][3],
+          middleName: data[i][4],
+          name: data[i][5] || `${data[i][3]} ${data[i][2]}`,
+          time: data[i][6] || ''
+        });
+      }
+    }
+    return students;
+  } catch (error) {
+    return [];
+  }
+}
+
+function submitEvaluation(evalData) {
+  try {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName(EVALUATIONS_SHEET_NAME);
+
+    const headers = [
+      'Timestamp', 'Facilitator Emp No', 'Date', 'Participant Name', 
+      'Scenario No', 'Diagnosis', 'Patient Name', 'Location',
+      'System Access', 'Clinical Summary', 'Orders Tab', 'Worklist Manager', 'Flowsheet',
+      'Admission Workflow', 'Allergies', 'Medication History', 'Vital Signs', 'Assessment', 
+      'Intake & Output', 'Fall Risk Assessment', 'Educaiton Record', 'Critical Result Notification', 'Plan of Care',
+      'Orders Tab Review', 'Carrying Out Orders', 'Add Specimen',
+      'Communication Order to CEMD', 'Supplies Encoding', 'Claiming of Medications', 'Turn In of Supplies or Medication',
+      'First Dose Checked', 'Knowledge Base Medication Administration', 'Administer Tablet Medication', 'Administer IV Fluids'
+    ];
+
+    if (!sheet) {
+      sheet = ss.insertSheet(EVALUATIONS_SHEET_NAME);
+      sheet.appendRow(headers);
+    }
+
+    const row = [
+      new Date(),
+      evalData.facilitatorEmpNo,
+      evalData.date,
+      evalData.participantName,
+      evalData.scenarioNo,
+      evalData.diagnosis,
+      evalData.patientName,
+      evalData.location
+    ];
+
+    const taskMap = {};
+    if (Array.isArray(evalData.scores)) {
+      evalData.scores.forEach(item => {
+        let result = 'Not Evaluated';
+        if (item.na === 'NA') {
+          result = 'N/A';
+        } else if (item.initialAttempt) {
+          result = `Initial: ${item.initialAttempt}`;
+        } else if (item.secondAttempt) {
+          result = `Second: ${item.secondAttempt}`;
+        }
+        taskMap[item.task] = result;
+      });
+    }
+
+    for (let i = 8; i < headers.length; i++) {
+      const headerName = headers[i];
+      const matchedKey = headerName === 'Educaiton Record' ? 'Education Record' : headerName;
+      row.push(taskMap[matchedKey] || taskMap[headerName] || '');
+    }
+
+    sheet.appendRow(row);
+    return { success: true, message: 'Evaluation submitted and saved successfully.' };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
